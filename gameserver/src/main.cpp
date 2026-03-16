@@ -82,6 +82,9 @@ void gameTick(us_timer_t *) {
         }
     }
     // std::cout << statePacket << std::endl;
+    if (!statePacket.empty()) {
+        statePacket.pop_back(); // remove the last comma
+    }
     globalApp->publish("game", statePacket, uWS::OpCode::TEXT, false);
 }
 
