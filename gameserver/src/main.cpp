@@ -4,7 +4,7 @@
 #include <vector>
 #include <App.h>
 
-constexpr int GAME_TICK_PERIOD = 50; // ms
+constexpr int GAME_TICK_PERIOD = 100; // ms
 constexpr int WORLD_GRID_WIDTH = 10;
 constexpr int WORLD_GRID_HEIGHT = 10;
 
@@ -32,7 +32,7 @@ typedef struct Tile {
 } Tile;
 
 typedef struct World {
-    std::unordered_map<WebSocket*, Player> players;
+    std::unordered_map<WebSocket*, Player*> players;
     Tile grid[WORLD_GRID_HEIGHT][WORLD_GRID_WIDTH];
 } World;
 
@@ -42,14 +42,13 @@ uWS::App *globalApp;
 
 void gameTick(us_timer_t *) {
     // step each player based on their current direction
-    for (auto& [ws, player] : world.players) {
-        Tile *currentTile = &world.grid[player.r][player.c];
-        currentTile->owner = nullptr;
+    for (auto &[ws, player] : world.players) {
+        world.grid[player->r][player->c].owner = nullptr;
 
-        int newR = player.r;
-        int newC = player.c;
+        int newR = player->r;
+        int newC = player->c;
 
-        switch (player.direction) {
+        switch (player->direction) {
             case Direction::UP:
                 newR--;
                 break;
@@ -68,8 +67,9 @@ void gameTick(us_timer_t *) {
         newR = std::max(0, std::min(newR, WORLD_GRID_HEIGHT - 1));
         newC = std::max(0, std::min(newC, WORLD_GRID_WIDTH - 1));
 
-        Tile *newTile = &world.grid[newR][newC];
-        newTile->owner = &player;
+        world.grid[newR][newC].owner = player;
+        player->r = newR;
+        player->c = newC;
     }
 
     // Create a flattened state packet of the grid: each cell encodes the player id or empty
@@ -89,35 +89,11 @@ void gameTick(us_timer_t *) {
 }
 
 int main() {
-
-    // constexpr double fixed_dt = 1.0 / 60.0;
-    // double accumulator = 0.0;
-    // auto last = std::chrono::steady_clock::now();
-
-    // while (true) {
-    //     auto now = std::chrono::steady_clock::now();
-    //     std::chrono::duration<double> elapsed = now - last;
-    //     last = now;
-
-    //     accumulator += elapsed.count();
-
-    //     while (accumulator >= fixed_dt) {
-    //         tickCount++;
-    //         if (tickCount % 60 == 0) {
-    //             std::cout << "tick " << tickCount << std::endl;
-    //         }
-    //         accumulator -= fixed_dt;
-    //     }
-
-    //     std::this_thread::sleep_for(std::chrono::milliseconds(1));
-    // }
-
     uWS::App app;
 
     app.ws<PerSocketData>("/*", {
         .open = [](WebSocket* ws) {
-            std::cout << "Client connected" << std::endl;
-            // ws->send("Hello", uWS::OpCode::TEXT);
+            // std::cout << "Client connected" << std::endl;
             ws->subscribe("game");
 
             Player player = Player{
@@ -127,31 +103,27 @@ int main() {
                 .direction = Direction::RIGHT
             };
 
-            world.players[ws] = player;
+            world.players[ws] = &player;
+            world.grid[0][0].owner = &player;
+
+            std::cout << "Player joined (pid " << std::to_string(player.pid) << ")" << std::endl;
         },
         .message = [](WebSocket* ws, std::string_view rawMessage, uWS::OpCode opCode) {
             std::string message = std::string(rawMessage);
 
-            Player &player = world.players[ws];
+            Player *player = world.players[ws];
 
             if (message == "ArrowUp") {
-                player.direction = Direction::UP;
+                player->direction = Direction::UP;
             } else if (message == "ArrowDown") {
-                player.direction = Direction::DOWN;
+                player->direction = Direction::DOWN;
             } else if (message == "ArrowLeft") {
-                player.direction = Direction::LEFT;
+                player->direction = Direction::LEFT;
             } else if (message == "ArrowRight") {
-                player.direction = Direction::RIGHT;
+                player->direction = Direction::RIGHT;
             } else {
                 return;
             }
-            // float dx;
-            // float dy;
-            // sscanf(rawMessage.data(), "%f %f", &dx, &dy);
-            // std::cout << "Received message: " << std::string(raw_message) << std::endl;
-            // std::cout << "Received message: " << raw_message.data() << std::endl;
-            // std::cout << dx << dy << std::endl;
-            // ws->send(raw_message, uWS::OpCode::TEXT);
         }
     });
 
