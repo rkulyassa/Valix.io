@@ -32,4 +32,12 @@ public:
     std::string_view asStringView() const {
         return std::string_view(reinterpret_cast<const char*>(buffer.data()), buffer.size());
     }
+
+    void print() const {
+        // Print each byte in hex for readability
+        for (size_t i = 0; i < buffer.size(); ++i) {
+            printf("%02X ", buffer[i]);
+        }
+        printf("\n");
+    }
 };

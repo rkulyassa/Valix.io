@@ -26,17 +26,11 @@ typedef struct Player {
     Direction direction;
 } Player;
 
-uint8_t pidIndex = 0;
-
-enum class TileStatus : uint8_t {
-    OWNED = 0,
-    TRAIL = 1,
-    UNOWNED = 2
-};
+uint8_t pidIndex = 1;
 
 typedef struct Tile {
     Player *owner;
-    TileStatus status;
+    bool isTrail;
 } Tile;
 
 typedef struct World {
@@ -48,10 +42,14 @@ World world{};
 
 uWS::App *globalApp;
 
+int randomInRange(int min, int max) {
+    return min + rand() % (max - min + 1);
+}
+
 void gameTick(us_timer_t *) {
     // step each player based on their current direction
     for (auto &[ws, player] : world.players) {
-        world.grid[player->r][player->c].owner = nullptr;
+        // world.grid[player->r][player->c].owner = nullptr;
 
         int newR = player->r;
         int newC = player->c;
@@ -71,7 +69,6 @@ void gameTick(us_timer_t *) {
                 break;
         }
 
-        
         newR = std::max(0, std::min(newR, WORLD_GRID_SIZE - 1));
         newC = std::max(0, std::min(newC, WORLD_GRID_SIZE - 1));
 
@@ -85,14 +82,17 @@ void gameTick(us_timer_t *) {
     for (int r = 0; r < WORLD_GRID_SIZE; r++) {
         for (int c = 0; c < WORLD_GRID_SIZE; c++) {
             Tile *tile = &world.grid[r][c];
-            writer.writeUint8(static_cast<uint8_t>(tile->status));
             writer.writeUint8(tile->owner ? static_cast<uint8_t>(tile->owner->pid) : 0);
+            writer.writeUint8(static_cast<uint8_t>(tile->isTrail));
         }
     }
+    // writer.print();
     globalApp->publish("game", writer.asStringView(), uWS::OpCode::BINARY, false);
 }
 
 int main() {
+    srand(static_cast<unsigned int>(time(nullptr)));
+
     uWS::App app;
 
     app.ws<PerSocketData>("/*", {
@@ -108,7 +108,17 @@ int main() {
             };
 
             world.players[ws] = &player;
-            world.grid[0][0].owner = &player;
+
+            // RNG the top left of the spawn area
+            int spawnAreaSize = 3;
+            int spawnR = randomInRange(0, WORLD_GRID_SIZE-spawnAreaSize);
+            int spawnC = randomInRange(0, WORLD_GRID_SIZE-spawnAreaSize);
+            std::cout << "Spawning player at (" << std::to_string(spawnR) << "," << std::to_string(spawnC) << ")" << std::endl;
+            for (int r = spawnR; r < spawnR+spawnAreaSize; r++) {
+                for (int c = spawnC; c < spawnC+spawnAreaSize; c++) {
+                    world.grid[r][c].owner = &player;
+                }
+            }
 
             std::cout << "Player joined (pid " << std::to_string(player.pid) << ")" << std::endl;
         },
@@ -128,6 +138,17 @@ int main() {
             } else {
                 return;
             }
+        },
+        .close = [](WebSocket* ws, int code, std::string_view rawMessage) {
+            Player *player = world.players[ws];
+            for (int r = 0; r < WORLD_GRID_SIZE; r++) {
+                for (int c = 0; c < WORLD_GRID_SIZE; c++) {
+                    if (world.grid[r][c].owner == player) {
+                        world.grid[r][c].owner = nullptr;
+                    }
+                }
+            }
+            world.players.erase(ws);
         }
     });
 

@@ -1,10 +1,7 @@
 import { initDevtools } from "@pixi/devtools";
 import { Application, Graphics } from "pixi.js";
 import { useEffect, useRef } from "react";
-
-export interface Tile {
-  owner: number;
-}
+import type { Tile } from "./types";
 
 interface PixiGridProps {
   grid: Tile[][];
@@ -52,11 +49,24 @@ export function PixiGrid({ grid, onKeyDown }: PixiGridProps) {
     const graphics = gridGraphicsRef.current;
     if (!graphics) return;
     graphics.clear();
+
     const TILE_SIZE_PX = 20;
     const offset = 100;
+
     for (let r = 0; r < grid.length; r++) {
       for (let c = 0; c < grid[0].length; c++) {
-        const fillColor = grid[r][c].owner === 0 ? 0x313244 : 0xa6e3a1;
+        // For nonzero pid, generate a random color using a simple hash function for consistent color per pid.
+        function pidToColor(pid: number) {
+          // Simple hash to get repeatable pseudo-random colors by pid
+          let hash = (pid * 2654435761) % 0xffffff;
+          // Avoid too-dark colors
+          hash = (hash | 0x303030) & 0xffffff;
+          return hash;
+        }
+        const fillColor =
+          grid[r][c].ownerPid === 0
+            ? 0x313244
+            : pidToColor(grid[r][c].ownerPid);
         graphics
           .rect(
             offset + c * TILE_SIZE_PX,
