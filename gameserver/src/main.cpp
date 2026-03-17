@@ -5,8 +5,7 @@
 #include <App.h>
 
 constexpr int GAME_TICK_PERIOD = 100; // ms
-constexpr int WORLD_GRID_WIDTH = 10;
-constexpr int WORLD_GRID_HEIGHT = 10;
+constexpr int WORLD_GRID_SIZE = 25;
 
 struct PerSocketData {};
 typedef uWS::WebSocket<false, true, PerSocketData> WebSocket;
@@ -27,13 +26,20 @@ typedef struct Player {
 
 uint8_t pidIndex = 0;
 
+enum class TileStatus {
+    OWNED,
+    TRAIL,
+    UNOWNED
+};
+
 typedef struct Tile {
     Player *owner;
+    TileStatus status;
 } Tile;
 
 typedef struct World {
     std::unordered_map<WebSocket*, Player*> players;
-    Tile grid[WORLD_GRID_HEIGHT][WORLD_GRID_WIDTH];
+    Tile grid[WORLD_GRID_SIZE][WORLD_GRID_SIZE];
 } World;
 
 World world{};
@@ -64,8 +70,8 @@ void gameTick(us_timer_t *) {
         }
 
         
-        newR = std::max(0, std::min(newR, WORLD_GRID_HEIGHT - 1));
-        newC = std::max(0, std::min(newC, WORLD_GRID_WIDTH - 1));
+        newR = std::max(0, std::min(newR, WORLD_GRID_SIZE - 1));
+        newC = std::max(0, std::min(newC, WORLD_GRID_SIZE - 1));
 
         world.grid[newR][newC].owner = player;
         player->r = newR;
@@ -74,8 +80,8 @@ void gameTick(us_timer_t *) {
 
     // Create a flattened state packet of the grid: each cell encodes the player id or empty
     std::string statePacket;
-    for (int r = 0; r < WORLD_GRID_HEIGHT; r++) {
-        for (int c = 0; c < WORLD_GRID_WIDTH; c++) {
+    for (int r = 0; r < WORLD_GRID_SIZE; r++) {
+        for (int c = 0; c < WORLD_GRID_SIZE; c++) {
             Tile *tile = &world.grid[r][c];
             Player *owner = tile ? tile->owner : nullptr;
             statePacket += owner ? std::to_string(owner->pid) + "," : "0,";

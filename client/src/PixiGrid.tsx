@@ -30,6 +30,7 @@ export function PixiGrid({ grid, onKeyDown }: PixiGridProps) {
       if (containerRef.current) {
         containerRef.current.innerHTML = "";
         containerRef.current.appendChild(app.canvas);
+        containerRef.current.focus();
       }
 
       const gridGraphics = new Graphics();
@@ -51,17 +52,17 @@ export function PixiGrid({ grid, onKeyDown }: PixiGridProps) {
     const graphics = gridGraphicsRef.current;
     if (!graphics) return;
     graphics.clear();
-    const TILE_SIZE = 40;
+    const TILE_SIZE_PX = 20;
     const offset = 100;
     for (let r = 0; r < grid.length; r++) {
       for (let c = 0; c < grid[0].length; c++) {
         const fillColor = grid[r][c].owner === 0 ? 0x313244 : 0xa6e3a1;
         graphics
           .rect(
-            offset + c * TILE_SIZE,
-            offset + r * TILE_SIZE,
-            TILE_SIZE,
-            TILE_SIZE,
+            offset + c * TILE_SIZE_PX,
+            offset + r * TILE_SIZE_PX,
+            TILE_SIZE_PX,
+            TILE_SIZE_PX,
           )
           .fill(fillColor)
           .stroke({
