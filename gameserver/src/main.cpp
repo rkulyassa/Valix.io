@@ -3,9 +3,11 @@
 #include <thread>
 #include <vector>
 #include <App.h>
+#include "BinaryReader.hpp"
+#include "BinaryWriter.hpp"
 
 constexpr int GAME_TICK_PERIOD = 100; // ms
-constexpr int WORLD_GRID_SIZE = 25;
+constexpr int WORLD_GRID_SIZE = 10;
 
 struct PerSocketData {};
 typedef uWS::WebSocket<false, true, PerSocketData> WebSocket;
@@ -26,10 +28,10 @@ typedef struct Player {
 
 uint8_t pidIndex = 0;
 
-enum class TileStatus {
-    OWNED,
-    TRAIL,
-    UNOWNED
+enum class TileStatus : uint8_t {
+    OWNED = 0,
+    TRAIL = 1,
+    UNOWNED = 2
 };
 
 typedef struct Tile {
@@ -78,20 +80,16 @@ void gameTick(us_timer_t *) {
         player->c = newC;
     }
 
-    // Create a flattened state packet of the grid: each cell encodes the player id or empty
-    std::string statePacket;
+    // build + broadcast flattened gamestate packet
+    BinaryWriter writer;
     for (int r = 0; r < WORLD_GRID_SIZE; r++) {
         for (int c = 0; c < WORLD_GRID_SIZE; c++) {
             Tile *tile = &world.grid[r][c];
-            Player *owner = tile ? tile->owner : nullptr;
-            statePacket += owner ? std::to_string(owner->pid) + "," : "0,";
+            writer.writeUint8(static_cast<uint8_t>(tile->status));
+            writer.writeUint8(tile->owner ? static_cast<uint8_t>(tile->owner->pid) : 0);
         }
     }
-    // std::cout << statePacket << std::endl;
-    if (!statePacket.empty()) {
-        statePacket.pop_back(); // remove the last comma
-    }
-    globalApp->publish("game", statePacket, uWS::OpCode::TEXT, false);
+    globalApp->publish("game", writer.asStringView(), uWS::OpCode::BINARY, false);
 }
 
 int main() {
