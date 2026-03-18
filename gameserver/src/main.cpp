@@ -7,7 +7,8 @@
 #include "BinaryReader.hpp"
 #include "BinaryWriter.hpp"
 
-constexpr int GAME_TICK_PERIOD = 100; // ms
+// constexpr int GAME_TICK_PERIOD = 100; // ms
+constexpr int GAME_TICK_PERIOD = 100;
 constexpr int WORLD_GRID_SIZE = 25;
 constexpr int SPAWN_AREA_SIZE = 3;
 
@@ -33,9 +34,9 @@ uint8_t pidIndex = 1;
 
 enum class TileStatus {
     EMPTY,
-    OWNED,
+    CAPTURED,
     TRAIL,
-    HEAD
+    // HEAD
 };
 
 
@@ -47,15 +48,6 @@ typedef struct Tile {
 struct World {
     std::unordered_map<WebSocket*, Player*> players;
     Tile grid[WORLD_GRID_SIZE][WORLD_GRID_SIZE];
-
-    // World() {
-    //     for (int r = 0; r < WORLD_GRID_SIZE; r++) {
-    //         for (int c = 0; c < WORLD_GRID_SIZE; c++) {
-    //             grid[r][c].owner = nullptr;
-    //             grid[r][c].isTrail = false;
-    //         }
-    //     }
-    // }
 };
 
 World world{};
@@ -67,6 +59,7 @@ int randomInRange(int min, int max) {
 }
 
 void floodFillBFS(Player *player) {
+    std::cout << "Flood filling" << std::endl;
     bool captureGrid[WORLD_GRID_SIZE][WORLD_GRID_SIZE] = {};
     
     // scan the edge of the grid for an unowned tile
@@ -117,7 +110,7 @@ void floodFillBFS(Player *player) {
         for (int c = 0; c < WORLD_GRID_SIZE; c++) {
             if (!captureGrid[r][c]) {
                 world.grid[r][c].owner = player;
-                world.grid[r][c].status = TileStatus::OWNED;
+                world.grid[r][c].status = TileStatus::CAPTURED;
             }
         }
     }
@@ -149,7 +142,7 @@ Player* spawnPlayer() {
     for (int r = spawnR; r < spawnR+SPAWN_AREA_SIZE; r++) {
         for (int c = spawnC; c < spawnC+SPAWN_AREA_SIZE; c++) {
             world.grid[r][c].owner = player;
-            // world.grid[r][c].status = TileStatus::HEAD;
+            world.grid[r][c].status = TileStatus::CAPTURED;
         }
     }
     
@@ -166,15 +159,16 @@ void respawnPlayer(Player *player) {
     for (int r = spawnR; r < spawnR+SPAWN_AREA_SIZE; r++) {
         for (int c = spawnC; c < spawnC+SPAWN_AREA_SIZE; c++) {
             world.grid[r][c].owner = player;
-            world.grid[r][c].status = TileStatus::OWNED;
+            world.grid[r][c].status = TileStatus::CAPTURED;
         }
     }
 
     player->r = spawnR + SPAWN_AREA_SIZE/2;
     player->c = spawnC + SPAWN_AREA_SIZE/2;
-    player->direction = Direction::RIGHT;
+    // player->direction = Direction::RIGHT;
     player->isCapturing = false;
-    world.grid[player->r][player->c].status = TileStatus::HEAD;
+    // world.grid[player->r][player->c].status = TileStatus::HEAD;
+    // world.grid[player->r][player->c].status = TileStatus::CAPTURED;
 
     std::cout << "Respawning player (pid: " << std::to_string(player->pid) << ") at (" << std::to_string(spawnR) << "," << std::to_string(spawnC) << ")" << std::endl;
 }
@@ -213,25 +207,28 @@ void gameTick(us_timer_t *) {
         // we shouldn't need to validate currentTile.owner, because us getting to this point implies they already own it
         // so, if its not a trail, then we know theyre starting a capture
         // one edge case to keep in mind though: player A captures the tile that player B launched a trail from
-        if (currentTile.owner == player && currentTile.status != TileStatus::TRAIL && newTile.owner != player) {
+        if (currentTile.owner == player && currentTile.status == TileStatus::CAPTURED && newTile.owner != player) {
             player->isCapturing = true;
+            // newTile.status = TileStatus::TRAIL;
         }
 
         if (player->isCapturing) {
             if (newTile.owner == player) {
                 floodFillBFS(player);
                 player->isCapturing = false;
-            } else {
-                currentTile.status = TileStatus::TRAIL;
+            } //else {
+            //     currentTile.status = TileStatus::TRAIL;
+            // }
+            else {
+                newTile.status = TileStatus::TRAIL;
             }
-        } else {
-            currentTile.status = TileStatus::OWNED;
-        }
+        }// else {
+        //     currentTile.status = TileStatus::OWNED;
+        // }
 
         // update player position
         player->r = newR;
         player->c = newC;
-        newTile.status = TileStatus::HEAD;
         newTile.owner = player;
     }
 
