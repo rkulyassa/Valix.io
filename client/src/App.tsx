@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PixiGrid } from "./PixiGrid";
-import type { Tile } from "./types";
+import { type Tile, TileStatuses } from "./types";
 
-export const WORLD_GRID_SIZE = 10;
+export const WORLD_GRID_SIZE = 25;
 
 function App() {
   const wsRef = useRef<WebSocket | null>(null);
@@ -10,7 +10,7 @@ function App() {
     Array.from({ length: WORLD_GRID_SIZE }, () =>
       Array.from({ length: WORLD_GRID_SIZE }, () => ({
         ownerPid: 0,
-        isTrail: false,
+        status: "Empty",
       })),
     ),
   );
@@ -24,8 +24,8 @@ function App() {
       const row: Tile[] = [];
       for (let c = 0; c < WORLD_GRID_SIZE; c++) {
         const ownerPid = data.getUint8(offset++);
-        const isTrail = !!data.getUint8(offset++);
-        row.push({ ownerPid: ownerPid, isTrail: isTrail });
+        const status = TileStatuses[data.getUint8(offset++)];
+        row.push({ ownerPid, status });
       }
       nextGrid.push(row);
     }

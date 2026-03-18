@@ -3,6 +3,15 @@ import { Application, Graphics } from "pixi.js";
 import { useEffect, useRef } from "react";
 import type { Tile } from "./types";
 
+// TODO: remove this
+function pidToColor(pid: number) {
+  // Simple hash to get repeatable pseudo-random colors by pid
+  let hash = (pid * 2654435761) % 0xffffff;
+  // Avoid too-dark colors
+  hash = (hash | 0x303030) & 0xffffff;
+  return hash;
+}
+
 interface PixiGridProps {
   grid: Tile[][];
   onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
@@ -55,18 +64,17 @@ export function PixiGrid({ grid, onKeyDown }: PixiGridProps) {
 
     for (let r = 0; r < grid.length; r++) {
       for (let c = 0; c < grid[0].length; c++) {
-        // For nonzero pid, generate a random color using a simple hash function for consistent color per pid.
-        function pidToColor(pid: number) {
-          // Simple hash to get repeatable pseudo-random colors by pid
-          let hash = (pid * 2654435761) % 0xffffff;
-          // Avoid too-dark colors
-          hash = (hash | 0x303030) & 0xffffff;
-          return hash;
+        let fillColor = 0x313244;
+        const tile = grid[r][c];
+        if (tile.ownerPid > 0) {
+          fillColor = pidToColor(grid[r][c].ownerPid);
         }
-        const fillColor =
-          grid[r][c].ownerPid === 0
-            ? 0x313244
-            : pidToColor(grid[r][c].ownerPid);
+        if (tile.status === "Trail") {
+          fillColor = 0x000000;
+        }
+        if (tile.status === "Head") {
+          fillColor = 0xffffff;
+        }
         graphics
           .rect(
             offset + c * TILE_SIZE_PX,

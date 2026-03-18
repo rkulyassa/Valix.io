@@ -2,12 +2,14 @@
 #include <chrono>
 #include <thread>
 #include <vector>
+#include <queue>
 #include <App.h>
 #include "BinaryReader.hpp"
 #include "BinaryWriter.hpp"
 
 constexpr int GAME_TICK_PERIOD = 100; // ms
-constexpr int WORLD_GRID_SIZE = 10;
+constexpr int WORLD_GRID_SIZE = 25;
+constexpr int SPAWN_AREA_SIZE = 3;
 
 struct PerSocketData {};
 typedef uWS::WebSocket<false, true, PerSocketData> WebSocket;
@@ -20,23 +22,41 @@ enum class Direction {
 };
 
 typedef struct Player {
-    uint8_t pid;
+    uint8_t pid; // this is for the client. server should distinguish/get players by world.players[WebSocket*]
     int r;
     int c;
     Direction direction;
+    bool isCapturing;
 } Player;
 
 uint8_t pidIndex = 1;
 
+enum class TileStatus {
+    EMPTY,
+    OWNED,
+    TRAIL,
+    HEAD
+};
+
+
 typedef struct Tile {
     Player *owner;
-    bool isTrail;
+    TileStatus status;
 } Tile;
 
-typedef struct World {
+struct World {
     std::unordered_map<WebSocket*, Player*> players;
     Tile grid[WORLD_GRID_SIZE][WORLD_GRID_SIZE];
-} World;
+
+    // World() {
+    //     for (int r = 0; r < WORLD_GRID_SIZE; r++) {
+    //         for (int c = 0; c < WORLD_GRID_SIZE; c++) {
+    //             grid[r][c].owner = nullptr;
+    //             grid[r][c].isTrail = false;
+    //         }
+    //     }
+    // }
+};
 
 World world{};
 
@@ -46,10 +66,122 @@ int randomInRange(int min, int max) {
     return min + rand() % (max - min + 1);
 }
 
+void floodFillBFS(Player *player) {
+    bool captureGrid[WORLD_GRID_SIZE][WORLD_GRID_SIZE] = {};
+    
+    // scan the edge of the grid for an unowned tile
+    int seedR = 0;
+    int seedC = 0;
+    bool done = false;
+    for (int r = 0; r < WORLD_GRID_SIZE; r++) {
+        for (int c = 0; c < WORLD_GRID_SIZE; c++) {
+            bool onEdge = r == 0 || r == WORLD_GRID_SIZE-1 || c == 0 || c == WORLD_GRID_SIZE-1;
+            if (onEdge && !world.grid[r][c].owner) {
+                seedR = r;
+                seedC = c;
+                done = true;
+                break;
+            }
+        }
+        if (done) break;
+    }
+
+    std::queue<std::pair<int, int>> q;
+
+    q.emplace(seedR, seedC);
+
+    bool visited[WORLD_GRID_SIZE][WORLD_GRID_SIZE] = {};    
+
+    while (!q.empty()) {
+        std::pair<int, int> tile = q.front();
+        q.pop();
+        
+        int r = tile.first;
+        int c = tile.second;
+        
+        if (visited[r][c] || r < 0 || c < 0 || r >= WORLD_GRID_SIZE || c >= WORLD_GRID_SIZE) continue;
+
+        visited[r][c] = true;
+
+        if (world.grid[r][c].owner != player) {
+            captureGrid[r][c] = true;
+            q.emplace(r+1, c);
+            q.emplace(r, c+1);
+            q.emplace(r, c-1);
+            q.emplace(r-1, c);
+        }
+    }
+
+    // at this point, captureGrid[r][c] = false means the tile is WITHIN captured territory
+    for (int r = 0; r < WORLD_GRID_SIZE; r++) {
+        for (int c = 0; c < WORLD_GRID_SIZE; c++) {
+            if (!captureGrid[r][c]) {
+                world.grid[r][c].owner = player;
+                world.grid[r][c].status = TileStatus::OWNED;
+            }
+        }
+    }
+}
+
+void removePlayerTiles(Player *player) {
+    for (int r = 0; r < WORLD_GRID_SIZE; r++) {
+        for (int c = 0; c < WORLD_GRID_SIZE; c++) {
+            if (world.grid[r][c].owner == player) {
+                world.grid[r][c].owner = nullptr;
+                world.grid[r][c].status = TileStatus::EMPTY;
+            }
+        }
+    }
+}
+
+Player* spawnPlayer() {
+    int spawnR = randomInRange(0, WORLD_GRID_SIZE-SPAWN_AREA_SIZE);
+    int spawnC = randomInRange(0, WORLD_GRID_SIZE-SPAWN_AREA_SIZE);
+    
+    Player* player = new Player{
+        .pid = pidIndex++,
+        .r = spawnR + SPAWN_AREA_SIZE/2,
+        .c = spawnC + SPAWN_AREA_SIZE/2,
+        .direction = Direction::RIGHT,
+        .isCapturing = false
+    };
+    
+    for (int r = spawnR; r < spawnR+SPAWN_AREA_SIZE; r++) {
+        for (int c = spawnC; c < spawnC+SPAWN_AREA_SIZE; c++) {
+            world.grid[r][c].owner = player;
+            // world.grid[r][c].status = TileStatus::HEAD;
+        }
+    }
+    
+    std::cout << "Spawning player (pid: " << std::to_string(player->pid) << ") at (" << std::to_string(spawnR) << "," << std::to_string(spawnC) << ")" << std::endl;
+    return player;
+}
+
+void respawnPlayer(Player *player) {
+    removePlayerTiles(player);
+
+    int spawnR = randomInRange(0, WORLD_GRID_SIZE-SPAWN_AREA_SIZE);
+    int spawnC = randomInRange(0, WORLD_GRID_SIZE-SPAWN_AREA_SIZE);
+
+    for (int r = spawnR; r < spawnR+SPAWN_AREA_SIZE; r++) {
+        for (int c = spawnC; c < spawnC+SPAWN_AREA_SIZE; c++) {
+            world.grid[r][c].owner = player;
+            world.grid[r][c].status = TileStatus::OWNED;
+        }
+    }
+
+    player->r = spawnR + SPAWN_AREA_SIZE/2;
+    player->c = spawnC + SPAWN_AREA_SIZE/2;
+    player->direction = Direction::RIGHT;
+    player->isCapturing = false;
+    world.grid[player->r][player->c].status = TileStatus::HEAD;
+
+    std::cout << "Respawning player (pid: " << std::to_string(player->pid) << ") at (" << std::to_string(spawnR) << "," << std::to_string(spawnC) << ")" << std::endl;
+}
+
 void gameTick(us_timer_t *) {
-    // step each player based on their current direction
     for (auto &[ws, player] : world.players) {
-        // world.grid[player->r][player->c].owner = nullptr;
+        Tile &currentTile = world.grid[player->r][player->c];
 
         int newR = player->r;
         int newC = player->c;
@@ -69,12 +201,38 @@ void gameTick(us_timer_t *) {
                 break;
         }
 
-        newR = std::max(0, std::min(newR, WORLD_GRID_SIZE - 1));
-        newC = std::max(0, std::min(newC, WORLD_GRID_SIZE - 1));
+        bool outOfBounds = newR < 0 || newC < 0 || newR >= WORLD_GRID_SIZE || newC >= WORLD_GRID_SIZE;
+        if (outOfBounds) {
+            respawnPlayer(player);
+            continue;
+        }
 
-        world.grid[newR][newC].owner = player;
+        Tile &newTile = world.grid[newR][newC];
+        
+        // check if player is leaving their owned area
+        // we shouldn't need to validate currentTile.owner, because us getting to this point implies they already own it
+        // so, if its not a trail, then we know theyre starting a capture
+        // one edge case to keep in mind though: player A captures the tile that player B launched a trail from
+        if (currentTile.owner == player && currentTile.status != TileStatus::TRAIL && newTile.owner != player) {
+            player->isCapturing = true;
+        }
+
+        if (player->isCapturing) {
+            if (newTile.owner == player) {
+                floodFillBFS(player);
+                player->isCapturing = false;
+            } else {
+                currentTile.status = TileStatus::TRAIL;
+            }
+        } else {
+            currentTile.status = TileStatus::OWNED;
+        }
+
+        // update player position
         player->r = newR;
         player->c = newC;
+        newTile.status = TileStatus::HEAD;
+        newTile.owner = player;
     }
 
     // build + broadcast flattened gamestate packet
@@ -83,7 +241,7 @@ void gameTick(us_timer_t *) {
         for (int c = 0; c < WORLD_GRID_SIZE; c++) {
             Tile *tile = &world.grid[r][c];
             writer.writeUint8(tile->owner ? static_cast<uint8_t>(tile->owner->pid) : 0);
-            writer.writeUint8(static_cast<uint8_t>(tile->isTrail));
+            writer.writeUint8(static_cast<uint8_t>(tile->status));
         }
     }
     // writer.print();
@@ -100,27 +258,8 @@ int main() {
             // std::cout << "Client connected" << std::endl;
             ws->subscribe("game");
 
-            Player player = Player{
-                .pid = pidIndex++,
-                .r = 0,
-                .c = 0,
-                .direction = Direction::RIGHT
-            };
-
-            world.players[ws] = &player;
-
-            // RNG the top left of the spawn area
-            int spawnAreaSize = 3;
-            int spawnR = randomInRange(0, WORLD_GRID_SIZE-spawnAreaSize);
-            int spawnC = randomInRange(0, WORLD_GRID_SIZE-spawnAreaSize);
-            std::cout << "Spawning player at (" << std::to_string(spawnR) << "," << std::to_string(spawnC) << ")" << std::endl;
-            for (int r = spawnR; r < spawnR+spawnAreaSize; r++) {
-                for (int c = spawnC; c < spawnC+spawnAreaSize; c++) {
-                    world.grid[r][c].owner = &player;
-                }
-            }
-
-            std::cout << "Player joined (pid " << std::to_string(player.pid) << ")" << std::endl;
+            Player *player = spawnPlayer();
+            world.players[ws] = player;
         },
         .message = [](WebSocket* ws, std::string_view rawMessage, uWS::OpCode opCode) {
             std::string message = std::string(rawMessage);
@@ -141,13 +280,7 @@ int main() {
         },
         .close = [](WebSocket* ws, int code, std::string_view rawMessage) {
             Player *player = world.players[ws];
-            for (int r = 0; r < WORLD_GRID_SIZE; r++) {
-                for (int c = 0; c < WORLD_GRID_SIZE; c++) {
-                    if (world.grid[r][c].owner == player) {
-                        world.grid[r][c].owner = nullptr;
-                    }
-                }
-            }
+            removePlayerTiles(player);
             world.players.erase(ws);
         }
     });
