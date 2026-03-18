@@ -7,18 +7,23 @@
 #include "BinaryReader.hpp"
 #include "BinaryWriter.hpp"
 
-constexpr int GAME_TICK_PERIOD = 100; // ms
+constexpr int GAME_TICK_MS = 1000;
 constexpr int WORLD_GRID_SIZE = 25;
 constexpr int SPAWN_AREA_SIZE = 3;
 
 struct PerSocketData {};
 typedef uWS::WebSocket<false, true, PerSocketData> WebSocket;
 
+enum class ServerOpcode {
+    WELCOME = 0,
+    GAMESTATE = 1,
+};
+
 enum class Direction {
     UP,
     DOWN,
     LEFT,
-    RIGHT
+    RIGHT,
 };
 
 typedef struct Player {
@@ -198,6 +203,9 @@ void gameTick(us_timer_t *) {
         if (currentTile.status == TileStatus::TRAIL) {
             if (newTile.status == TileStatus::CAPTURED && newTile.owner == player) {
                 floodFillBFS(player);
+            } else if (newTile.status == TileStatus::TRAIL && newTile.owner == player) {
+                respawnPlayer(player);
+                continue;
             } else {
                 newTile.status = TileStatus::TRAIL;
             }
@@ -211,12 +219,19 @@ void gameTick(us_timer_t *) {
 
     // build + broadcast flattened gamestate packet
     BinaryWriter writer;
+    writer.writeUint8(static_cast<uint8_t>(ServerOpcode::GAMESTATE));
     for (int r = 0; r < WORLD_GRID_SIZE; r++) {
         for (int c = 0; c < WORLD_GRID_SIZE; c++) {
             Tile *tile = &world.grid[r][c];
-            writer.writeUint8(tile->owner ? static_cast<uint8_t>(tile->owner->pid) : 0);
+            writer.writeUint8(tile->owner ? tile->owner->pid : 0);
             writer.writeUint8(static_cast<uint8_t>(tile->status));
         }
+    }
+    writer.writeUint8(world.players.size());
+    for (const auto &[ws, player] : world.players) {
+        writer.writeUint8(player->pid);
+        writer.writeUint8(player->r);
+        writer.writeUint8(player->c);
     }
     // writer.print();
     globalApp->publish("game", writer.asStringView(), uWS::OpCode::BINARY, false);
@@ -230,8 +245,15 @@ int main() {
     app.ws<PerSocketData>("/*", {
         .open = [](WebSocket* ws) {
             ws->subscribe("game");
+
             Player *player = spawnPlayer();
             world.players[ws] = player;
+
+            BinaryWriter writer;
+            writer.writeUint8(static_cast<uint8_t>(ServerOpcode::WELCOME));
+            writer.writeUint8(player->pid);
+            writer.writeUint8(WORLD_GRID_SIZE);
+            ws->send(writer.asStringView(), uWS::OpCode::BINARY);
         },
         .message = [](WebSocket* ws, std::string_view rawMessage, uWS::OpCode opCode) {
             std::string message = std::string(rawMessage);
@@ -269,8 +291,8 @@ int main() {
     // run game loop
     us_loop_t *loop = (us_loop_t *)uWS::Loop::get();
     us_timer_t *timer = us_create_timer(loop, 0, 0);
-    us_timer_set(timer, gameTick, GAME_TICK_PERIOD, GAME_TICK_PERIOD);
-    std::cout << "Game loop running at " << 1000/GAME_TICK_PERIOD << "Hz" << std::endl;
+    us_timer_set(timer, gameTick, GAME_TICK_MS, GAME_TICK_MS);
+    std::cout << "Game loop running at " << 1000/GAME_TICK_MS << "Hz" << std::endl;
 
     globalApp = &app;
 

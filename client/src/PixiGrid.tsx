@@ -1,7 +1,7 @@
 import { initDevtools } from "@pixi/devtools";
 import { Application, Graphics } from "pixi.js";
 import { useEffect, useRef } from "react";
-import type { Tile } from "./types";
+import type { Player, Tile } from "./types";
 
 // TODO: remove this
 function pidToColor(pid: number) {
@@ -14,10 +14,12 @@ function pidToColor(pid: number) {
 
 interface PixiGridProps {
   grid: Tile[][];
+  players: Player[];
+  pid: number;
   onKeyDown?: (event: React.KeyboardEvent<HTMLDivElement>) => void;
 }
 
-export function PixiGrid({ grid, onKeyDown }: PixiGridProps) {
+export function PixiGrid({ grid, players, pid, onKeyDown }: PixiGridProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const appRef = useRef<Application | null>(null);
   const gridGraphicsRef = useRef<Graphics | null>(null);
@@ -60,7 +62,7 @@ export function PixiGrid({ grid, onKeyDown }: PixiGridProps) {
     graphics.clear();
 
     const TILE_SIZE_PX = 20;
-    const offset = 100;
+    const GRID_OFFSET_PX = 100;
 
     for (let r = 0; r < grid.length; r++) {
       for (let c = 0; c < grid[0].length; c++) {
@@ -77,8 +79,8 @@ export function PixiGrid({ grid, onKeyDown }: PixiGridProps) {
         }
         graphics
           .rect(
-            offset + c * TILE_SIZE_PX,
-            offset + r * TILE_SIZE_PX,
+            GRID_OFFSET_PX + c * TILE_SIZE_PX,
+            GRID_OFFSET_PX + r * TILE_SIZE_PX,
             TILE_SIZE_PX,
             TILE_SIZE_PX,
           )
@@ -89,7 +91,23 @@ export function PixiGrid({ grid, onKeyDown }: PixiGridProps) {
           });
       }
     }
-  }, [grid]);
+
+    // Draw a circle for each player (teleporting to their server tile)
+    for (const player of players) {
+      const color = player.pid === pid ? 0xffffff : pidToColor(player.pid);
+      graphics
+        .circle(
+          GRID_OFFSET_PX + player.col * TILE_SIZE_PX + TILE_SIZE_PX / 2,
+          GRID_OFFSET_PX + player.row * TILE_SIZE_PX + TILE_SIZE_PX / 2,
+          TILE_SIZE_PX * 0.4,
+        )
+        .fill(color)
+        .stroke({
+          width: 2,
+          color: 0x000000,
+        });
+    }
+  }, [grid, players, pid]);
 
   return (
     <div

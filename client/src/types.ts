@@ -5,3 +5,9 @@ export interface Tile {
   ownerPid: number;
   status: TileStatus;
 }
+
+export interface Player {
+  pid: number;
+  row: number;
+  col: number;
+}
