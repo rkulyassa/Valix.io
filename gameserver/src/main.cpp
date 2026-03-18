@@ -7,8 +7,7 @@
 #include "BinaryReader.hpp"
 #include "BinaryWriter.hpp"
 
-// constexpr int GAME_TICK_PERIOD = 100; // ms
-constexpr int GAME_TICK_PERIOD = 100;
+constexpr int GAME_TICK_PERIOD = 100; // ms
 constexpr int WORLD_GRID_SIZE = 25;
 constexpr int SPAWN_AREA_SIZE = 3;
 
@@ -27,7 +26,6 @@ typedef struct Player {
     int r;
     int c;
     Direction direction;
-    bool isCapturing;
 } Player;
 
 uint8_t pidIndex = 1;
@@ -36,7 +34,6 @@ enum class TileStatus {
     EMPTY,
     CAPTURED,
     TRAIL,
-    // HEAD
 };
 
 
@@ -58,30 +55,25 @@ int randomInRange(int min, int max) {
     return min + rand() % (max - min + 1);
 }
 
+/**
+ * Launches a multi-source BFS from all unowned grid edges to identify tiles not already captured by the player or part of their trail.
+ * All tiles not reachable by the fill are thus within the capture range and are captured by the player.
+ * @param player The capturing player
+ */
 void floodFillBFS(Player *player) {
-    std::cout << "Flood filling" << std::endl;
     bool captureGrid[WORLD_GRID_SIZE][WORLD_GRID_SIZE] = {};
+
+    std::queue<std::pair<int, int>> q;
     
-    // scan the edge of the grid for an unowned tile
-    int seedR = 0;
-    int seedC = 0;
-    bool done = false;
+    // initialize queue with all unowned edge tiles
     for (int r = 0; r < WORLD_GRID_SIZE; r++) {
         for (int c = 0; c < WORLD_GRID_SIZE; c++) {
             bool onEdge = r == 0 || r == WORLD_GRID_SIZE-1 || c == 0 || c == WORLD_GRID_SIZE-1;
             if (onEdge && !world.grid[r][c].owner) {
-                seedR = r;
-                seedC = c;
-                done = true;
-                break;
+                q.emplace(r, c);
             }
         }
-        if (done) break;
     }
-
-    std::queue<std::pair<int, int>> q;
-
-    q.emplace(seedR, seedC);
 
     bool visited[WORLD_GRID_SIZE][WORLD_GRID_SIZE] = {};    
 
@@ -136,7 +128,6 @@ Player* spawnPlayer() {
         .r = spawnR + SPAWN_AREA_SIZE/2,
         .c = spawnC + SPAWN_AREA_SIZE/2,
         .direction = Direction::RIGHT,
-        .isCapturing = false
     };
     
     for (int r = spawnR; r < spawnR+SPAWN_AREA_SIZE; r++) {
@@ -165,21 +156,15 @@ void respawnPlayer(Player *player) {
 
     player->r = spawnR + SPAWN_AREA_SIZE/2;
     player->c = spawnC + SPAWN_AREA_SIZE/2;
-    // player->direction = Direction::RIGHT;
-    player->isCapturing = false;
-    // world.grid[player->r][player->c].status = TileStatus::HEAD;
-    // world.grid[player->r][player->c].status = TileStatus::CAPTURED;
 
     std::cout << "Respawning player (pid: " << std::to_string(player->pid) << ") at (" << std::to_string(spawnR) << "," << std::to_string(spawnC) << ")" << std::endl;
 }
 
 void gameTick(us_timer_t *) {
     for (auto &[ws, player] : world.players) {
-        Tile &currentTile = world.grid[player->r][player->c];
-
         int newR = player->r;
         int newC = player->c;
-
+        
         switch (player->direction) {
             case Direction::UP:
                 newR--;
@@ -194,37 +179,29 @@ void gameTick(us_timer_t *) {
                 newC++;
                 break;
         }
-
+        
         bool outOfBounds = newR < 0 || newC < 0 || newR >= WORLD_GRID_SIZE || newC >= WORLD_GRID_SIZE;
         if (outOfBounds) {
             respawnPlayer(player);
             continue;
         }
-
+        
+        Tile &currentTile = world.grid[player->r][player->c];
         Tile &newTile = world.grid[newR][newC];
         
-        // check if player is leaving their owned area
-        // we shouldn't need to validate currentTile.owner, because us getting to this point implies they already own it
-        // so, if its not a trail, then we know theyre starting a capture
-        // one edge case to keep in mind though: player A captures the tile that player B launched a trail from
+        // check if player is going from captured -> capturing
         if (currentTile.owner == player && currentTile.status == TileStatus::CAPTURED && newTile.owner != player) {
-            player->isCapturing = true;
-            // newTile.status = TileStatus::TRAIL;
+            newTile.status = TileStatus::TRAIL;
         }
 
-        if (player->isCapturing) {
-            if (newTile.owner == player) {
+        // if player is in capturing state
+        if (currentTile.status == TileStatus::TRAIL) {
+            if (newTile.status == TileStatus::CAPTURED && newTile.owner == player) {
                 floodFillBFS(player);
-                player->isCapturing = false;
-            } //else {
-            //     currentTile.status = TileStatus::TRAIL;
-            // }
-            else {
+            } else {
                 newTile.status = TileStatus::TRAIL;
             }
-        }// else {
-        //     currentTile.status = TileStatus::OWNED;
-        // }
+        }
 
         // update player position
         player->r = newR;
@@ -252,9 +229,7 @@ int main() {
 
     app.ws<PerSocketData>("/*", {
         .open = [](WebSocket* ws) {
-            // std::cout << "Client connected" << std::endl;
             ws->subscribe("game");
-
             Player *player = spawnPlayer();
             world.players[ws] = player;
         },
@@ -263,13 +238,13 @@ int main() {
 
             Player *player = world.players[ws];
 
-            if (message == "ArrowUp") {
+            if (message == "ArrowUp" && player->direction != Direction::DOWN) {
                 player->direction = Direction::UP;
-            } else if (message == "ArrowDown") {
+            } else if (message == "ArrowDown" && player->direction != Direction::UP) {
                 player->direction = Direction::DOWN;
-            } else if (message == "ArrowLeft") {
+            } else if (message == "ArrowLeft" && player->direction != Direction::RIGHT) {
                 player->direction = Direction::LEFT;
-            } else if (message == "ArrowRight") {
+            } else if (message == "ArrowRight" && player->direction != Direction::LEFT) {
                 player->direction = Direction::RIGHT;
             } else {
                 return;
@@ -279,6 +254,7 @@ int main() {
             Player *player = world.players[ws];
             removePlayerTiles(player);
             world.players.erase(ws);
+            std::cout << "Disconnecting player (pid: " << std::to_string(player->pid) << ")" << std::endl;
         }
     });
 
