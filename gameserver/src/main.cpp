@@ -7,7 +7,7 @@
 #include "BinaryReader.hpp"
 #include "BinaryWriter.hpp"
 
-constexpr int GAME_TICK_MS = 1000;
+constexpr int GAME_TICK_MS = 100;
 constexpr int WORLD_GRID_SIZE = 25;
 constexpr int SPAWN_AREA_SIZE = 3;
 

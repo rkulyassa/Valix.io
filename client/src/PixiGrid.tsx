@@ -61,8 +61,11 @@ export function PixiGrid({ grid, players, pid, onKeyDown }: PixiGridProps) {
     if (!graphics) return;
     graphics.clear();
 
+    // const GRID_OFFSET_PX = 100;
     const TILE_SIZE_PX = 20;
-    const GRID_OFFSET_PX = 100;
+
+    const me = players.find((p) => p.pid === pid);
+    if (!me) return;
 
     for (let r = 0; r < grid.length; r++) {
       for (let c = 0; c < grid[0].length; c++) {
@@ -77,30 +80,28 @@ export function PixiGrid({ grid, players, pid, onKeyDown }: PixiGridProps) {
         if (tile.status === "Head") {
           fillColor = 0xffffff;
         }
-        graphics
-          .rect(
-            GRID_OFFSET_PX + c * TILE_SIZE_PX,
-            GRID_OFFSET_PX + r * TILE_SIZE_PX,
-            TILE_SIZE_PX,
-            TILE_SIZE_PX,
-          )
-          .fill(fillColor)
-          .stroke({
-            width: 2,
-            color: 0x6c7086,
-          });
+        const x = window.innerWidth / 2 + (c - me.col) * TILE_SIZE_PX;
+        const y = window.innerHeight / 2 + (r - me.row) * TILE_SIZE_PX;
+        graphics.rect(x, y, TILE_SIZE_PX, TILE_SIZE_PX).fill(fillColor).stroke({
+          width: 2,
+          color: 0x6c7086,
+        });
       }
     }
 
     // Draw a circle for each player (teleporting to their server tile)
     for (const player of players) {
-      const color = player.pid === pid ? 0xffffff : pidToColor(player.pid);
+      const color = player.pid === pid ? 0xffffff : 0xff0000;
+      const x =
+        window.innerWidth / 2 +
+        (player.col - me.col) * TILE_SIZE_PX +
+        TILE_SIZE_PX / 2;
+      const y =
+        window.innerHeight / 2 -
+        (player.row - me.row) * TILE_SIZE_PX +
+        TILE_SIZE_PX / 2;
       graphics
-        .circle(
-          GRID_OFFSET_PX + player.col * TILE_SIZE_PX + TILE_SIZE_PX / 2,
-          GRID_OFFSET_PX + player.row * TILE_SIZE_PX + TILE_SIZE_PX / 2,
-          TILE_SIZE_PX * 0.4,
-        )
+        .circle(x, y, TILE_SIZE_PX * 0.4)
         .fill(color)
         .stroke({
           width: 2,
